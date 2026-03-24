@@ -1,1 +1,306 @@
-
+{
+  "Comment": "Weekly pipeline with run-lock (allow if missing or FAILED), mark SUCCEEDED/FAILED",
+  "StartAt": "AcquireRunLock",
+  "States": {
+    "AcquireRunLock": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "WeeklyRunLocks",
+        "Key": {
+          "week": {
+            "S.$": "$.week"
+          }
+        },
+        "UpdateExpression": "SET #s = :running, startedAt = :start, executionArn = :arn",
+        "ConditionExpression": "attribute_not_exists(#w) OR #s = :failed",
+        "ExpressionAttributeNames": {
+          "#w": "week",
+          "#s": "status"
+        },
+        "ExpressionAttributeValues": {
+          ":running": {
+            "S": "RUNNING"
+          },
+          ":failed": {
+            "S": "FAILED"
+          },
+          ":start": {
+            "S.$": "$$.Execution.StartTime"
+          },
+          ":arn": {
+            "S.$": "$$.Execution.Id"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "DynamoDB.ConditionalCheckFailedException"
+          ],
+          "Next": "AlreadyRanFail"
+        }
+      ],
+      "Next": "LambdaA_ExtractSkills"
+    },
+    "AlreadyRanFail": {
+      "Type": "Fail",
+      "Error": "RunBlocked",
+      "Cause": "This week is already RUNNING or SUCCEEDED. Re-run is allowed only if status is FAILED or the item does not exist."
+    },
+    "LambdaA_ExtractSkills": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:us-east-1:032574253697:function:weekly-extract-skills-bedrock:$LATEST",
+        "Payload": {
+          "week.$": "$.week",
+          "prefix.$": "$.prefix",
+          "top_n.$": "$.top_n"
+        }
+      },
+      "ResultPath": "$.lambdaA",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.failure",
+          "Next": "MarkRunFailed"
+        }
+      ],
+      "Next": "GetTopSkills"
+    },
+    "GetTopSkills": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "Weekly-Top-10-Skills",
+        "Payload": {
+          "week.$": "$.week",
+          "limit.$": "$.limit"
+        }
+      },
+      "ResultPath": "$.lambdaB",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.failure",
+          "Next": "MarkRunFailed"
+        }
+      ],
+      "Next": "ResumeComparison"
+    },
+    "ResumeComparison": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "Resume-Skill-Comparison",
+        "Payload": {
+          "week.$": "$.week",
+          "limit.$": "$.limit",
+          "resume_s3_key.$": "$.resume_s3_key",
+          "top_skills.$": "$.lambdaB.Payload.top_skills"
+        }
+      },
+      "ResultPath": "$.lambdaC",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.failure",
+          "Next": "MarkRunFailed"
+        }
+      ],
+      "Next": "RequestHumanReview"
+    },
+    "RequestHumanReview": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "TimeoutSeconds": 259200,
+      "Parameters": {
+        "FunctionName": "lambda-review-request",
+        "Payload": {
+          "taskToken.$": "$$.Task.Token",
+          "reviewData.$": "$.lambdaC.Payload"
+        }
+      },
+      "ResultPath": "$.humanReview",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "HumanRejected"
+          ],
+          "ResultPath": "$.failure",
+          "Next": "MarkRunFailed"
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.failure",
+          "Next": "MarkRunFailed"
+        }
+      ],
+      "Next": "FinalRecommendationsAndWrite"
+    },
+    "FinalRecommendationsAndWrite": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "Finalize-Reviewed-Results",
+        "Payload": {
+          "week.$": "$.week",
+          "reviewed_output.$": "$.humanReview",
+          "jobs_processed.$": "$.lambdaA.Payload.jobs_processed"
+        }
+      },
+      "ResultPath": "$.finalWrite",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.failure",
+          "Next": "MarkRunFailed"
+        }
+      ],
+      "Next": "MarkRunSucceeded"
+    },
+    "MarkRunSucceeded": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "WeeklyRunLocks",
+        "Key": {
+          "week": {
+            "S.$": "$.week"
+          }
+        },
+        "UpdateExpression": "SET #s = :s, endedAt = :t",
+        "ExpressionAttributeNames": {
+          "#s": "status"
+        },
+        "ExpressionAttributeValues": {
+          ":s": {
+            "S": "SUCCEEDED"
+          },
+          ":t": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "OutputPath": "$.finalWrite.Payload",
+      "End": true
+    },
+    "MarkRunFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "WeeklyRunLocks",
+        "Key": {
+          "week": {
+            "S.$": "$.week"
+          }
+        },
+        "UpdateExpression": "SET #s = :s, endedAt = :t, #e = :e, cause = :c",
+        "ExpressionAttributeNames": {
+          "#s": "status",
+          "#e": "error"
+        },
+        "ExpressionAttributeValues": {
+          ":s": {
+            "S": "FAILED"
+          },
+          ":t": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":e": {
+            "S.$": "$.failure.Error"
+          },
+          ":c": {
+            "S.$": "$.failure.Cause"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "FailExecution"
+    },
+    "FailExecution": {
+      "Type": "Fail",
+      "Error": "PipelineFailed",
+      "Cause": "Execution failed and WeeklyRunLocks was set to FAILED."
+    }
+  }
+}
