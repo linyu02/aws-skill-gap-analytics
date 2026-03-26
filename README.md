@@ -1,77 +1,55 @@
 # Skill Gap Analytics (AWS + LLM)
 
-Turn messy job postings into clear learning priorities.
+I thought I needed to learn everything—so I built a system to find what actually matters.
+
+Built with AWS serverless + LLMs, this pipeline extracts, aggregates, and analyzes job market demand to guide learning decisions.
 
 ![Demo](./data%20analysis/weekly_skill_demand.gif)
+---
+
+## 🔗 Explore More
+
+- 📖 **Project Story** → [How a Math Student Turned Job Market Noise into Learning Decisions](https://www.notion.so/How-a-Math-Student-Turned-Job-Market-Noise-into-Learning-Decisions-3277b91442b380a69023e2a73bf1f489)
+- ⚙️ **Technical Appendix** → [AWS Architecture for the Job Market Skill Tracker](https://www.notion.so/AWS-Architecture-for-the-Job-Market-Skill-Tracker-32c7b91442b380008e73ddcfab0ed73c)
 
 ---
 
-## Why I Built This
+## 💡 Why I Built This
 
-Job descriptions often made me feel like I needed to learn *everything* while market demand kept changing.
+Job descriptions made it feel like:
+> “I need to learn everything.”
 
-So I reframed the problem:
+So I treated the job market like a dataset and asked:
 
-> Instead of asking “what should I learn?”,
-> I asked **“what actually matters most?”**
-
-👉 [Project story](YOUR_NOTION_LINK)
+> **Which skills actually matter across the roles I care about?**
 
 ---
 
-## Key Takeaways
+## 📊 Key Findings
 
-![Top Skills](./assets/top_skills.png)
+- The market is **more structured than it feels**  
+- A small set of skills shows up **consistently across roles**  
+- ~30% of top skills are **soft skills**; **communication appears in ~90%**  
+- My resume already covered **~85% of demand**  
 
-* A small set of skills appeared consistently across many roles
-* About 30% of the top skills were soft skills
-* Communication showed up in about 90% of job descriptions
-
----
-
-## How It Works
-
-S3 → Lambda → Step Functions → DynamoDB → S3
-
-1. Upload weekly job descriptions and my resume to S3
-2. Prevent duplicate weekly runs
-3. Extract and normalize skills with Bedrock
-4. Retrieve top weekly skills
-5. Compare market demand against my resume
-6. Request human review
-7. Write final recommendations
-
-![Architecture](./assets/architecture.png)
-
-👉 [System design](YOUR_NOTION_LINK)
+👉 The problem wasn’t “learn everything” —  
+it was **identify high-leverage gaps + communicate existing skills better**
 
 ---
 
-## Repo Guide
+## What This System Does
 
-* `lambda/`
-  Core AWS Lambda functions for:
-
-  * skill extraction
-  * top skill retrieval
-  * resume comparison
-  * human review request
-  * final recommendation writing
-
-* `step_functions/`
-  Workflow definition for pipeline orchestration
-
-* `data analysis/`
-  Local analysis and visualization files, including charts and GIFs
-
-* `assets/`
-  README visuals and architecture diagram
-
-* `sample_output/`
-  Example outputs such as matched skills, gaps, and recommendations
+- Extracts skills from job descriptions (LLM + evidence)  
+- Tracks **weekly demand trends**  
+- Compares market demand vs. resume  
+- Outputs **targeted skill gaps + next steps**
 
 ---
 
-## Stack
+## What’s in This Repo
 
-Python · AWS (S3, Lambda, Step Functions, DynamoDB, SNS, IAM) · Bedrock · Pandas
+```bash
+lambda/              # extraction + resume comparison  
+step_functions/      # orchestration  
+data_analysis/       # code for visualization + analysis  
+sample_outputs/      # structured outputs  
