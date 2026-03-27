@@ -37,13 +37,14 @@ it was **identify high-leverage gaps + communicate existing skills better**
 
 ---
 
-## What This System Does
+## What This System Does & Architecture 
 
 - Extracts skills from job descriptions (LLM + evidence)  
 - Tracks **weekly demand trends**  
 - Compares market demand vs. resume  
 - Outputs **targeted skill gaps + next steps**
 
+![Architecture](./AWS_SkillGapAnalytisc_Architecture.drawio.png)
 ---
 
 ## What’s in This Repo
